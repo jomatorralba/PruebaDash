@@ -223,13 +223,15 @@
 
         let currentLanguage = 'en';
 
-        function updateExercise(exercise) {
-            const exerciseData = exercises[exercise];
-            exerciseImage.style.backgroundColor = exerciseData.color;
-            exerciseImage.textContent = exerciseData.title + ' Image';
-            exerciseTitle.textContent = exerciseData.title;
-            exerciseDescription.textContent = exerciseData.description[currentLanguage];
-            startButton.href = exerciseData.link;
+function updateExercise(exercise) {
+    const exerciseData = exercises[exercise];
+    exerciseImage.style.backgroundColor = exerciseData.color;
+    exerciseImage.innerHTML = `<img src="images/${exercise}.jpg" alt="${exerciseData.title} Image" style="width:100%; height:100%; border-radius:10px;">`;
+    exerciseTitle.textContent = exerciseData.title;
+    exerciseDescription.textContent = exerciseData.description[currentLanguage];
+    startButton.href = exerciseData.link;
+}
+
         }
 
         function updateLanguage() {
