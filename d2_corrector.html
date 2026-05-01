@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Corrector d2</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f3f5f8; color: #1f2937; }
+    .layout { display: grid; grid-template-columns: 340px 1fr; min-height: 100vh; }
+    .panel { background: #fff; padding: 16px; border-right: 1px solid #d1d5db; overflow: auto; }
+    h1 { margin: 0 0 12px; font-size: 1.4rem; }
+    h2 { font-size: 1rem; margin: 18px 0 8px; }
+    .group { margin-bottom: 10px; }
+    label { display: block; font-size: .9rem; margin-bottom: 4px; }
+    input[type="range"], input[type="number"], input[type="file"] { width: 100%; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    button { border: 1px solid #cbd5e1; background: #f8fafc; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+    button:hover { background: #eef2ff; }
+    .score-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; }
+    .score { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px; background: #f8fafc; }
+    .score strong { display: block; margin-bottom: 6px; }
+    .score-controls { display: flex; gap: 6px; }
+    .viewer-wrap { display: flex; justify-content: center; align-items: center; padding: 16px; }
+    .viewer { position: relative; width: min(1200px, 96%); aspect-ratio: 16/10; background: #000; overflow: hidden; border-radius: 12px; }
+    video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #111; }
+    #overlayImg { position: absolute; left: 50%; top: 50%; transform-origin: center center; pointer-events: none; }
+    .hint { font-size: 0.84rem; color: #475569; }
+    a.back { display: inline-block; margin-top: 8px; color: #2563eb; text-decoration: none; }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside class="panel">
+    <h1>Corrector d2</h1>
+    <p class="hint">Carga la hoja completada y la plantilla. La plantilla se superpone de forma transparente sobre la cámara para facilitar la corrección.</p>
+
+    <div class="group">
+      <label for="cameraSelect">Cámara</label>
+      <select id="cameraSelect" style="width:100%"></select>
+      <div class="row" style="margin-top:8px">
+        <button id="startBtn">Iniciar cámara</button>
+        <button id="stopBtn">Detener</button>
+      </div>
+    </div>
+
+    <h2>Imágenes</h2>
+    <div class="group">
+      <label for="sheetInput">Hoja del paciente (opcional referencia)</label>
+      <input type="file" id="sheetInput" accept="image/*" />
+    </div>
+    <div class="group">
+      <label for="overlayInput">Plantilla de corrección (PNG recomendado)</label>
+      <input type="file" id="overlayInput" accept="image/*" />
+    </div>
+
+    <h2>Calibración de plantilla</h2>
+    <div class="group"><label>Opacidad <span id="opacityV">50</span>%</label><input id="opacity" type="range" min="0" max="100" value="50"></div>
+    <div class="group"><label>Escala <span id="scaleV">1.00</span>x</label><input id="scale" type="range" min="20" max="300" value="100"></div>
+    <div class="group"><label>Rotación <span id="rotationV">0</span>°</label><input id="rotation" type="range" min="-30" max="30" value="0"></div>
+    <div class="group"><label>Desplazamiento X <span id="xV">0</span>px</label><input id="x" type="range" min="-800" max="800" value="0"></div>
+    <div class="group"><label>Desplazamiento Y <span id="yV">0</span>px</label><input id="y" type="range" min="-800" max="800" value="0"></div>
+    <div class="row"><button id="resetCalib">Reiniciar calibración</button><button id="toggleOverlay">Mostrar/Ocultar</button></div>
+
+    <h2>Puntuación manual</h2>
+    <div class="score-grid">
+      <div class="score"><strong>Aciertos</strong><div class="score-controls"><button data-score="hits" data-delta="-1">-</button><span id="hits">0</span><button data-score="hits" data-delta="1">+</button></div></div>
+      <div class="score"><strong>Errores</strong><div class="score-controls"><button data-score="errors" data-delta="-1">-</button><span id="errors">0</span><button data-score="errors" data-delta="1">+</button></div></div>
+      <div class="score"><strong>Omisiones</strong><div class="score-controls"><button data-score="omissions" data-delta="-1">-</button><span id="omissions">0</span><button data-score="omissions" data-delta="1">+</button></div></div>
+      <div class="score"><strong>Comisiones</strong><div class="score-controls"><button data-score="commissions" data-delta="-1">-</button><span id="commissions">0</span><button data-score="commissions" data-delta="1">+</button></div></div>
+    </div>
+    <a href="index.html" class="back">← Volver al dashboard</a>
+  </aside>
+
+  <main class="viewer-wrap">
+    <div class="viewer" id="viewer">
+      <video id="video" autoplay playsinline muted></video>
+      <img id="overlayImg" alt="Plantilla d2" />
+    </div>
+  </main>
+</div>
+
+<script>
+  const video = document.getElementById('video');
+  const overlayImg = document.getElementById('overlayImg');
+  const cameraSelect = document.getElementById('cameraSelect');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const overlayInput = document.getElementById('overlayInput');
+  const controls = ['opacity', 'scale', 'rotation', 'x', 'y'];
+  const values = { opacity: 50, scale: 100, rotation: 0, x: 0, y: 0 };
+  let stream;
+  let overlayVisible = true;
+
+  async function listCameras() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter(d => d.kind === 'videoinput');
+    cameraSelect.innerHTML = '';
+    cams.forEach((cam, i) => {
+      const opt = document.createElement('option');
+      opt.value = cam.deviceId;
+      opt.textContent = cam.label || `Cámara ${i + 1}`;
+      cameraSelect.appendChild(opt);
+    });
+  }
+
+  async function startCamera() {
+    stopCamera();
+    const deviceId = cameraSelect.value;
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' },
+      audio: false
+    });
+    video.srcObject = stream;
+    await listCameras();
+  }
+
+  function stopCamera() {
+    if (!stream) return;
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+
+  function updateOverlayTransform() {
+    const s = values.scale / 100;
+    overlayImg.style.opacity = (values.opacity / 100).toString();
+    overlayImg.style.transform = `translate(${values.x}px, ${values.y}px) rotate(${values.rotation}deg) scale(${s})`;
+    controls.forEach(id => document.getElementById(id + 'V').textContent = id === 'scale' ? s.toFixed(2) : values[id]);
+  }
+
+  controls.forEach(id => {
+    document.getElementById(id).addEventListener('input', (e) => {
+      values[id] = Number(e.target.value);
+      updateOverlayTransform();
+    });
+  });
+
+  overlayInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    overlayImg.src = URL.createObjectURL(file);
+    overlayImg.onload = () => {
+      overlayImg.style.width = `${Math.min(overlayImg.naturalWidth, 1600)}px`;
+      overlayImg.style.height = 'auto';
+      updateOverlayTransform();
+    };
+  });
+
+  document.getElementById('sheetInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    video.style.opacity = '0.08';
+    video.style.display = 'none';
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    img.style.position = 'absolute';
+    img.style.inset = '0';
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'contain';
+    img.id = 'sheetPreview';
+    const old = document.getElementById('sheetPreview');
+    if (old) old.remove();
+    document.getElementById('viewer').prepend(img);
+  });
+
+  document.getElementById('resetCalib').addEventListener('click', () => {
+    Object.assign(values, { opacity: 50, scale: 100, rotation: 0, x: 0, y: 0 });
+    controls.forEach(id => document.getElementById(id).value = values[id]);
+    updateOverlayTransform();
+  });
+
+  document.getElementById('toggleOverlay').addEventListener('click', () => {
+    overlayVisible = !overlayVisible;
+    overlayImg.style.display = overlayVisible ? 'block' : 'none';
+  });
+
+  document.querySelectorAll('[data-score]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.score;
+      const el = document.getElementById(key);
+      const next = Math.max(0, Number(el.textContent) + Number(btn.dataset.delta));
+      el.textContent = String(next);
+    });
+  });
+
+  startBtn.addEventListener('click', startCamera);
+  stopBtn.addEventListener('click', stopCamera);
+  navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    .then(temp => { temp.getTracks().forEach(t => t.stop()); return listCameras(); })
+    .catch(() => {});
+
+  updateOverlayTransform();
+</script>
+</body>
+</html>
